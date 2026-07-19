@@ -1,0 +1,349 @@
+Data Overview
+Your dataset has 10 songs with these columns:
+
+Column	Type	Range/Values	Notes
+id	int	1–10	Identifier — not a feature
+title	text	unique	Label only
+artist	categorical	8 distinct (Neon Echo, LoRoom repeat)	Weak signal
+genre	categorical	pop, lofi, rock, ambient, jazz, synthwave, indie pop	Strong signal
+mood	categorical	happy, chill, intense, relaxed, moody, focused	Strong signal
+energy	float 0–1	0.28 → 0.93	Well-spread ✅
+tempo_bpm	int	60 → 152	Different scale ⚠️
+valence	float 0–1	0.48 → 0.84	Positivity/happiness
+danceability	float 0–1	0.41 → 0.88	Well-spread ✅
+acousticness	float 0–1	0.05 → 0.92	Very well-spread ✅
+Recommended Features for a Simple Content-Based Recommender
+Tier 1 — use these as your core (numeric, already normalized 0–1):
+
+energy, valence, danceability, acousticness — these are the ideal backbone. They're continuous, already on a 0–1 scale, and spread out nicely across your songs, so cosine or Euclidean similarity will produce meaningful distances with zero preprocessing. This is the cleanest possible input for a beginner recommender.
+Tier 2 — include, but normalize first:
+
+tempo_bpm — musically meaningful, but it ranges 60–152 while everything else is 0–1. If you drop it in raw, it will dominate the distance calculation and drown out the other features. Min-max scale it to 0–1 first: tempo_norm = (tempo - 60) / (152 - 60)
+Tier 3 — great for a hybrid boost:
+
+genre and mood — strong categorical signals that capture things the numbers miss (a "chill lofi" vibe). Two easy ways to use them:
+Simple: a match bonus — add a fixed score (e.g. +0.15) when the candidate shares the same genre/mood as the seed song.
+Proper: one-hot encode them and append to the numeric vector.
+Skip for now: id, title (pure labels), and artist (8 distinct values across 10 rows — too sparse to generalize, though "more by this artist" is a nice later feature).
+
+Suggested Starting Point
+For the simplest effective version, use just the four Tier-1 numeric features — no scaling, no encoding needed:
+
+
+FEATURES = ["energy", "valence", "danceability", "acousticness"]
+Compute cosine similarity between each song's 4-value vector and recommend the nearest neighbors. That alone will cleanly separate, say, Spacewalk Thoughts (0.28, 0.65, 0.41, 0.92 — mellow/acoustic) from Gym Hero (0.93, 0.77, 0.88, 0.05 — high-energy/electronic).
+
+Then, as a natural next step, add normalized tempo_bpm and a genre/mood match bonus to make results feel more intuitive.
+
+===================================================================
+ALGORITHM RECIPE (Phase 2) — Tier-1 Content-Based Scoring
+===================================================================
+
+GOAL
+Given a user's taste (a target value for each Tier-1 feature) and a song,
+produce a single score between 0.0 and 1.0. Higher = better match.
+Then rank all songs by score and return the top k.
+
+FEATURES USED (Tier 1 only — all already on a 0-1 scale)
+  FEATURES = ["energy", "valence", "danceability", "acousticness"]
+No scaling, encoding, or preprocessing needed.
+
+INPUT
+  user target vector: one preferred value (0-1) per feature, e.g.
+      {energy: 0.90, valence: 0.80, danceability: 0.85, acousticness: 0.05}
+  song vector: the song's own value for each of the same four features.
+
+STEP-BY-STEP RULES
+  1. For each feature f in FEATURES:
+        diff_f = | user_target[f] - song[f] |          (range 0.0 - 1.0)
+        A small diff means the song matches the user on that feature.
+
+  2. Average the four differences:
+        mean_diff = (diff_energy + diff_valence
+                     + diff_danceability + diff_acousticness) / 4
+
+  3. Convert distance into a similarity score:
+        score = 1 - mean_diff                           (range 0.0 - 1.0)
+        1.0 = perfect match, 0.0 = opposite on every feature.
+
+  4. Collect a REASON for each feature that matches closely (diff <= 0.15),
+     e.g. "similar energy", "matching acousticness". These become the
+     human-readable explanation returned alongside the score.
+
+  5. RANK all songs by score, highest first. Break ties by song id (stable).
+     Return the top k.
+
+WHY DISTANCE (not cosine) FOR TIER 1
+  Magnitude matters here: energy 0.9 vs 0.3 is a real difference the user
+  cares about. Cosine similarity ignores magnitude (only compares direction),
+  so a mellow song and an intense song can look "similar." Average absolute
+  difference keeps the 0-1 meaning intact and is easy to explain.
+
+OPTIONAL WEIGHTS (default = equal)
+  If some features matter more, multiply each diff by a weight and divide by
+  the sum of weights instead of by 4:
+        weights = {energy: 1, valence: 1, danceability: 1, acousticness: 1}
+        mean_diff = sum(w_f * diff_f) / sum(w_f)
+  Start with all weights = 1; tune later.
+
+WORKED EXAMPLE
+  User wants a high-energy dance track:
+      target = {energy: 0.90, valence: 0.80, danceability: 0.85, acousticness: 0.05}
+
+  Gym Hero (0.93, 0.77, 0.88, 0.05):
+      diffs = 0.03, 0.03, 0.03, 0.00  -> mean_diff = 0.0225
+      score = 0.978   (strong match; reasons: energy, valence, danceability, acousticness)
+
+  Spacewalk Thoughts (0.28, 0.65, 0.41, 0.92):
+      diffs = 0.62, 0.15, 0.44, 0.87  -> mean_diff = 0.520
+      score = 0.480   (weak match)
+
+  Result: Gym Hero ranks far above Spacewalk Thoughts, as expected.
+
+MAPS TO CODE (src/recommender.py)
+  score_song(user_prefs, song) -> (score, reasons)   implements steps 1-4
+  recommend_songs(user_prefs, songs, k)              implements step 5
+
+===================================================================
+SCORING RULE (Phase 2b) — Closeness Math + Genre/Mood Weighting
+===================================================================
+
+PART A — SCORING A SINGLE NUMERICAL FEATURE (e.g. energy)
+
+The rule must reward CLOSENESS to the user's preference, not just a high
+(or low) raw value. A song at energy 0.85 should beat a song at energy 1.0
+if the user's target is 0.80 — because 0.85 is closer.
+
+Both the user target and the song value live on the same 0-1 scale, so:
+
+    distance = | user_target[f] - song[f] |     (0.0 = identical, 1.0 = opposite)
+
+We turn distance into a "closeness reward" that is highest at the target and
+shrinks as the song drifts away in EITHER direction:
+
+  Option 1 (DEFAULT — Linear proximity):
+        feature_score = 1 - distance
+        - Simple, cheap, easy to explain.
+        - A song exactly on target scores 1.0; halfway off scores 0.5.
+
+  Option 2 (OPTIONAL — Gaussian proximity, sharper reward):
+        feature_score = exp( -(distance^2) / (2 * sigma^2) )
+        - sigma controls tolerance; sigma = 0.25 is a good start.
+        - Rewards near-perfect matches strongly and is forgiving of tiny
+          misses, but punishes large gaps hard. Use if linear feels too flat.
+
+Either way the score PEAKS at the user's preferred value and DECREASES
+symmetrically as the song moves higher OR lower. That is the whole point:
+we reward proximity, not magnitude.
+
+Overall numeric score = average of the per-feature closeness scores across
+the Tier-1 features (see Phase 2 recipe above).
+
+PART B — GENRE vs MOOD: SHOULD A GENRE MATCH BE WORTH MORE?
+
+DECISION: YES. A matching genre is worth MORE than a matching mood.
+    genre_bonus = 0.20   (added when song.genre == user.favorite_genre)
+    mood_bonus  = 0.10   (added when song.mood  == user.favorite_mood)
+
+WHY genre outranks mood:
+  1. Genre is a stronger, more stable signal of musical identity
+     (instrumentation, production, structure). It rarely changes how a
+     listener perceives a track.
+  2. Mood is more situational and OVERLAPS across genres — "chill" spans
+     lofi, jazz, and ambient alike, so a mood match is less discriminating.
+  3. In this dataset genre has 7 distinct values vs mood's 6, and genre
+     lines up more tightly with the audio features, so a genre match carries
+     more information about whether the user will like the song.
+  => Genre match = a bigger, more reliable clue -> more points.
+
+PART C — COMBINING EVERYTHING INTO THE FINAL SCORE
+
+    final_score = numeric_score            (0.0 - 1.0, from Part A)
+                + genre_bonus              (+0.20 if genre matches, else 0)
+                + mood_bonus               (+0.10 if mood  matches, else 0)
+
+    Raw range: 0.0 to 1.30.
+    Optional: divide by 1.30 to normalize back to 0-1 for display. Ranking
+    order is identical either way, so normalization is cosmetic.
+
+  Each contributing part also emits a REASON string (e.g. "close energy
+  match", "same genre: lofi", "same mood: chill") for explain_recommendation.
+
+WORKED EXAMPLE (linear, user likes lofi / chill, target energy 0.40, acoustic)
+  Focus Flow  (lofi, focused, energy 0.40): numeric ~0.90
+        + genre 0.20 (lofi match) + mood 0.00 (focused != chill) = 1.10
+  Library Rain (lofi, chill, energy 0.35): numeric ~0.88
+        + genre 0.20 (lofi match) + mood 0.10 (chill match)      = 1.18  <- top
+  Library Rain wins because it matches BOTH genre and mood, and the genre
+  match alone (0.20) outweighs any single mood match (0.10).
+
+
+===================================================================
+ALGORITHM RECIPE (Phase 3) — THE RULE TABLE
+===================================================================
+
+This is the executable "recipe": every decision the recommender makes,
+written as a numbered rule. Read top to bottom — each rule fires in order,
+takes an input, applies a formula, and either adds to the running score or
+emits a reason. R1-R6 build ONE song's score; R7-R9 rank the whole list.
+
+Legend for the columns:
+  Rule#     - order the rule fires in
+  Name      - short handle for the rule
+  Applies to- which feature/field the rule reads
+  Condition - when the rule contributes (else it is skipped / scores 0)
+  Formula   - the exact math applied
+  Value/Wt  - the constant weight or bonus this rule can contribute
+  Output    - what it adds to the score or how it changes ranking
+  Reason    - the human-readable string emitted for explain_recommendation
+
+TABLE 1 — PER-SONG SCORING RULES (run once per candidate song)
++------+--------------------+---------------+----------------------------+--------------------------------------------+-----------+------------------------------+-----------------------------+
+| Rule | Name               | Applies to    | Condition                  | Formula                                    | Value/Wt  | Output                       | Reason emitted              |
++------+--------------------+---------------+----------------------------+--------------------------------------------+-----------+------------------------------+-----------------------------+
+| R1   | Feature closeness  | energy        | feature present in song    | fs = 1 - |target - song_val|               | weight 1.5| per-feature score 0.0-1.0    | "close energy match"        |
+| R2   | Feature closeness  | valence       | feature present in song    | fs = 1 - |target - song_val|               | weight 1.0| per-feature score 0.0-1.0    | "matching valence"          |
+| R3   | Feature closeness  | danceability  | feature present in song    | fs = 1 - |target - song_val|               | weight 1.0| per-feature score 0.0-1.0    | "similar danceability"      |
+| R4   | Feature closeness  | acousticness  | feature present in song    | fs = 1 - |target - song_val|               | weight 1.0| per-feature score 0.0-1.0    | "matching acousticness"     |
+| R4b  | Feature closeness* | tempo_bpm     | feature present (optional) | fs = 1 - |target-val| / tolerance(BPM)     | weight 1.0| per-feature score 0.0-1.0    | "similar tempo"             |
+| R5   | Numeric aggregate  | R1..R4 output | always                     | numeric = sum(w_f * fs_f) / sum(w_f)       | -         | base score 0.0-1.0           | (none; feeds R6)            |
+| R6a  | Genre bonus        | genre         | song.genre == fav_genre    | + genre_bonus                              | +0.20     | added to score               | "same genre: <g>"           |
+| R6b  | Mood bonus         | mood          | song.mood == fav_mood      | + mood_bonus                               | +0.10     | added to score               | "same mood: <m>"            |
+| R6c  | Reason threshold   | R1..R4 output | any fs >= 0.85 (diff<=0.15)| collect that feature's reason              | -         | appends reason string        | the matching feature reason |
++------+--------------------+---------------+----------------------------+--------------------------------------------+-----------+------------------------------+-----------------------------+
+* R4b is optional; include only once tempo_bpm is min-max normalized or a BPM tolerance is used (see Tier-2 note above).
+
+FINAL PER-SONG SCORE (after R1-R6):
+    final_score = numeric (R5, range 0.0-1.0)
+                + genre_bonus (R6a, +0.20 or 0)
+                + mood_bonus  (R6b, +0.10 or 0)
+    Raw range 0.0 - 1.30. Optionally divide by 1.30 for display (ranking is unchanged).
+
+TABLE 2 — RANKING & OUTPUT RULES (run once over ALL scored songs)
++------+--------------------+---------------------------------------------+--------------------------------------------------+
+| Rule | Name               | Condition / Trigger                         | Action                                           |
++------+--------------------+---------------------------------------------+--------------------------------------------------+
+| R7   | Sort               | all songs scored                            | order by final_score DESC                        |
+| R8   | Tie-break          | two songs have equal final_score            | order those by song id ASC (stable, repeatable)  |
+| R9   | Top-k cut          | ranked list ready                           | return first k songs (default k=5) with reasons  |
+| R10  | Self-exclude       | a candidate == the seed/already-played song | drop it before R9 (never recommend the input)    |
+| R11  | Empty guard        | no songs, or every score == 0               | return [] and a "no strong match" message        |
++------+--------------------+---------------------------------------------+--------------------------------------------------+
+
+TABLE 3 — TUNABLE CONSTANTS (one place to adjust behaviour)
++---------------------+---------+------------------------------------------------+
+| Constant            | Default | Effect if increased                            |
++---------------------+---------+------------------------------------------------+
+| weight_energy       | 1.5     | energy matters more in the numeric average     |
+| weight_others       | 1.0     | baseline pull for valence/dance/acoustic/tempo |
+| genre_bonus         | 0.20    | genre agreement dominates ranking more         |
+| mood_bonus          | 0.10    | mood agreement nudges ranking                  |
+| reason_threshold    | 0.85 fs | more/fewer features qualify as "a match"       |
+| k                   | 5       | how many songs are returned                    |
+| sigma (Gaussian opt)| 0.25    | lower = stricter closeness reward (Phase 2b)   |
++---------------------+---------+------------------------------------------------+
+
+RULE-BY-RULE WORKED EXAMPLE
+  User: fav_genre=pop, fav_mood=happy, target {energy 0.90, valence 0.80,
+        danceability 0.85, acousticness 0.05}, k=3.
+
+  Song "Gym Hero" (pop, happy, 0.93/0.77/0.88/0.05):
+    R1 energy  fs=1-0.03=0.97 (w1.5)
+    R2 valence fs=1-0.03=0.97 (w1.0)
+    R3 dance   fs=1-0.03=0.97 (w1.0)
+    R4 acoust  fs=1-0.00=1.00 (w1.0)
+    R5 numeric = (1.5*0.97 + 0.97 + 0.97 + 1.00) / 4.5 = 0.978
+    R6a +0.20 (genre pop == pop)   -> "same genre: pop"
+    R6b +0.10 (mood happy == happy)-> "same mood: happy"
+    R6c all four fs >= 0.85 -> 4 feature reasons collected
+    final_score = 0.978 + 0.20 + 0.10 = 1.278  (top of the list)
+
+MAPS TO CODE (src/recommender.py)
+  score_song(user_prefs, song)        -> implements R1-R6 -> (score, reasons)
+  recommend_songs(user_prefs, songs,k)-> implements R7-R11 -> ranked top-k
+  UserProfile fields feed the targets/bonuses; Song fields feed the values.
+
+
+===================================================================
+POINT SYSTEM (Phase 4) — ADDITIVE, FAIR POINT AWARDS
+===================================================================
+
+A simple, transparent scoring scheme: a song starts at 0.0 points and EARNS
+points for each way it matches the user. Higher total = better recommendation.
+This is the beginner-friendly "absolute points" form of the recommender and maps
+1:1 to the starter UserProfile (favorite_genre, favorite_mood, target_energy,
+likes_acoustic). No normalization is required — points are compared directly.
+
+WHY THESE POINT VALUES ARE FAIR
+  The goal is that no single factor silently dominates and that each award is
+  proportional to how much information it carries about the user's taste.
+    - Genre is the strongest, most STABLE taste signal -> the largest fixed
+      award (+2.0). It is an exact, high-confidence match.
+    - Mood is real but SITUATIONAL and overlaps across genres ("chill" spans
+      lofi, jazz, ambient) -> worth HALF of genre (+1.0).
+    - Energy is a continuous feature, so it earns GRADED points by closeness
+      (up to +2.0) instead of an all-or-nothing bonus -- a near miss still
+      earns most of the points, a large miss earns almost none.
+  Categorical taste (genre + mood) can contribute at most 3.0; the numeric
+  energy fit contributes at most 2.0. That keeps the two kinds of evidence in a
+  healthy balance rather than letting either bucket run away with the score.
+
+CORE POINT TABLE (the three requested factors)
++------+------------------+----------------+-----------------------------------------------+-----------+---------------------------+
+| Item | Factor           | Reads          | Condition / Formula                           | Points    | Reason emitted            |
++------+------------------+----------------+-----------------------------------------------+-----------+---------------------------+
+| P1   | Genre match      | genre          | song.genre == user.favorite_genre             | +2.0      | "same genre: <g>"         |
+| P2   | Mood match       | mood           | song.mood  == user.favorite_mood              | +1.0      | "same mood: <m>"          |
+| P3   | Energy closeness | energy         | energy_pts = 2.0 * max(0, 1 - |target-energy|)| 0.0..+2.0 | "close energy match"      |
++------+------------------+----------------+-----------------------------------------------+-----------+---------------------------+
+  Core maximum = 2.0 + 1.0 + 2.0 = 5.0 points.
+
+OPTIONAL EXTENSIONS (keep the same balance; add only if you want more nuance)
++------+----------------------+----------------+---------------------------------------------------------+-----------+
+| Item | Factor               | Reads          | Condition / Formula                                     | Points    |
++------+----------------------+----------------+---------------------------------------------------------+-----------+
+| P4   | Acoustic preference  | acousticness   | pts = 0.5 * (acousticness if likes_acoustic             | 0.0..+0.5 |
+|      |                      |                |            else 1 - acousticness)                       |           |
+| P5   | Other numeric close  | valence, dance | pts = 0.5 * max(0, 1 - |target_f - song_f|) per feature  | 0.0..+0.5 |
++------+----------------------+----------------+---------------------------------------------------------+-----------+
+  P3 uses the SAME "graded closeness" idea as Phase 2b, just scaled to a 2.0 cap
+  instead of 1.0. P4/P5 are half-weight because they are secondary signals.
+
+STEP-BY-STEP
+  1. total = 0.0 ; reasons = []
+  2. P1: if genre matches       -> total += 2.0 ; reasons.append("same genre: ...")
+  3. P2: if mood matches        -> total += 1.0 ; reasons.append("same mood: ...")
+  4. P3: energy_pts = 2.0 * max(0, 1 - abs(target_energy - song.energy))
+        total += energy_pts
+        if energy_pts >= 1.7 (within 0.15 of target) -> reasons.append("close energy match")
+  5. (optional) add P4 / P5 the same way.
+  6. return (total, reasons)
+  7. Rank all songs by total DESC; break ties by song id ASC; return top k.
+
+WORKED EXAMPLE
+  User: favorite_genre=pop, favorite_mood=happy, target_energy=0.90,
+        likes_acoustic=False.
+
+  Sunrise City (pop, happy, energy 0.82, acousticness 0.18):
+    P1 genre pop == pop            -> +2.0
+    P2 mood happy == happy         -> +1.0
+    P3 energy 2.0*(1 - |0.90-0.82|)= 2.0*0.92 = +1.84   -> "close energy match"
+    P4 (opt) 0.5*(1 - 0.18)        -> +0.41  (likes_acoustic=False, song is not acoustic)
+    total (core) = 4.84   |  total (with P4) = 5.25
+
+  Gym Hero (pop, intense, energy 0.93, acousticness 0.05):
+    P1 genre pop == pop            -> +2.0
+    P2 mood intense != happy       -> +0.0
+    P3 energy 2.0*(1 - |0.90-0.93|)= 2.0*0.97 = +1.94
+    P4 (opt) 0.5*(1 - 0.05)        -> +0.475
+    total (core) = 3.94   |  total (with P4) = 4.42
+
+  Sunrise City ranks above Gym Hero: both nail genre and energy, but Sunrise
+  City also matches mood (+1.0), which is exactly the tie-breaking evidence the
+  point system is designed to reward.
+
+MAPS TO CODE (src/recommender.py)
+  score_song(user_prefs, song) -> apply P1..P3 (P4/P5 optional) -> (total, reasons)
+  recommend_songs(...)         -> rank by total, tie-break by id, return top k
+  Tunable: GENRE_PTS=2.0, MOOD_PTS=1.0, ENERGY_MAX=2.0 (raise a constant to make
+  that factor matter more; the fairness argument above explains the defaults).

@@ -1,0 +1,56 @@
+%% Music Recommender - Data Flow
+%% Input (User Prefs) -> Process (score every song) -> Output (Top K ranking)
+
+flowchart TD
+    subgraph INPUT["1 - INPUT: User Preferences"]
+        U["UserProfile
+        favorite_genre, favorite_mood,
+        target_energy, likes_acoustic"]
+        C["songs.csv
+        load into list of songs"]
+    end
+
+    subgraph PROCESS["2 - PROCESS: The Loop (score every song)"]
+        direction TB
+        LOOP{"more songs
+        to score?"}
+        NEXT["take next song"]
+
+        subgraph SCORE["score_song(user, song)  ->  (total, reasons)"]
+            direction TB
+            P1["P1 Genre match?
+            +2.0 if song.genre == favorite_genre"]
+            P2["P2 Mood match?
+            +1.0 if song.mood == favorite_mood"]
+            P3["P3 Energy closeness
+            +2.0 * max(0, 1 - |target_energy - energy|)"]
+            SUM["total = P1 + P2 + P3
+            collect reasons"]
+            P1 --> P2 --> P3 --> SUM
+        end
+
+        STORE["append (song, total, reasons)
+        to scored list"]
+
+        LOOP -- yes --> NEXT --> SCORE --> STORE --> LOOP
+    end
+
+    subgraph OUTPUT["3 - OUTPUT: The Ranking"]
+        SORT["sort scored list by total DESC
+        tie-break by song id ASC"]
+        TOPK["take top K (default k=5)"]
+        SHOW["return / display each pick
+        with score + reasons"]
+        SORT --> TOPK --> SHOW
+    end
+
+    U --> LOOP
+    C --> LOOP
+    LOOP -- no --> SORT
+
+    classDef inp fill:#e3f2fd,stroke:#1565c0,color:#0d1b2a;
+    classDef proc fill:#fff3e0,stroke:#e65100,color:#1a0d00;
+    classDef out fill:#e8f5e9,stroke:#2e7d32,color:#0d1a0d;
+    class U,C inp;
+    class LOOP,NEXT,P1,P2,P3,SUM,STORE proc;
+    class SORT,TOPK,SHOW out;
