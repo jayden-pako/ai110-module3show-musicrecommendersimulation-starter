@@ -54,15 +54,43 @@ def print_recommendations(user_prefs: dict, recommendations: list) -> None:
     print("\n" + "=" * width)
 
 
+# Three distinct listener taste profiles the simulation recommends for.
+# Each is a plain dict of the fields recommend_songs() understands:
+#   genre, mood, energy, and (optionally) likes_acoustic.
+USER_PROFILES = {
+    # Copied from user1.py's first design: its top genre affinity (pop = 1.0)
+    # plus its first mood profile ("workout": moods intense/happy, energy 0.88).
+    "High-Energy Pop": {
+        "genre": "pop",
+        "mood": "happy",
+        "energy": 0.88,
+        "likes_acoustic": False,
+    },
+    # Calm, acoustic study listening -- mirrors user1.py's "focus" mood.
+    "Chill Lofi": {
+        "genre": "lofi",
+        "mood": "chill",
+        "energy": 0.35,
+        "likes_acoustic": True,
+    },
+    # Loud, driving, high-energy rock.
+    "Deep Intense Rock": {
+        "genre": "rock",
+        "mood": "intense",
+        "energy": 0.90,
+        "likes_acoustic": False,
+    },
+}
+
+
 def main() -> None:
     songs = load_songs(str(CSV_PATH))
 
-    # Starter example profile
-    user_prefs = {"genre": "pop", "mood": "happy", "energy": 0.8}
-
-    recommendations = recommend_songs(user_prefs, songs, k=5)
-
-    print_recommendations(user_prefs, recommendations)
+    # Run the recommender for each taste profile and print its top 5.
+    for name, user_prefs in USER_PROFILES.items():
+        print(f"\n### {name} ###")
+        recommendations = recommend_songs(user_prefs, songs, k=5)
+        print_recommendations(user_prefs, recommendations)
 
 
 if __name__ == "__main__":

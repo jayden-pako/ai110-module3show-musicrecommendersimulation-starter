@@ -110,35 +110,118 @@ You can add more tests in `tests/test_recommender.py`.
 
 ## Sample Recommendation Output
 
-Below is a sample of the recommender's terminal output showing the top recommendations (song titles, scores, and reasons):
+Below is the recommender's terminal output (`python main.py` from `src/`) showing the top 5 recommendations — song titles, scores, and reasons — for each of the three taste profiles defined in `src/main.py`.
+
+### Profile 1 — High-Energy Pop
 
 ```
 ============================================================
                     TOP RECOMMENDATIONS
 ============================================================
-For your taste  ->  genre: pop  |  mood: happy  |  energy: 0.8
+For your taste  ->  genre: pop  |  mood: happy  |  energy: 0.88  |  likes_acoustic: False
 ------------------------------------------------------------
 
-1. Sunrise City - Neon Echo                  Score:  4.96
+1. Sunrise City - Neon Echo                  Score:  5.29
      - genre match: pop (+2.0)
      - mood match: happy (+1.0)
+     - close energy match (+1.88)
+     - non-acoustic preference (+0.41)
+
+2. Gym Hero - Max Pulse                      Score:  4.38
+     - genre match: pop (+2.0)
+     - close energy match (+1.90)
+     - non-acoustic preference (+0.47)
+
+3. Stayin' Alive - Bee Gees                  Score:  3.28
+     - mood match: happy (+1.0)
+     - close energy match (+1.82)
+     - non-acoustic preference (+0.46)
+
+4. Rooftop Lights - Indigo Parade            Score:  3.08
+     - mood match: happy (+1.0)
+     - close energy match (+1.76)
+     - non-acoustic preference (+0.33)
+
+5. Uptown Funk - Mark Ronson ft. Bruno Mars  Score:  2.96
+     - mood match: happy (+1.0)
+     - energy match (+1.46)
+     - non-acoustic preference (+0.49)
+
+============================================================
+```
+
+### Profile 2 — Chill Lofi
+
+```
+============================================================
+                    TOP RECOMMENDATIONS
+============================================================
+For your taste  ->  genre: lofi  |  mood: chill  |  energy: 0.35  |  likes_acoustic: True
+------------------------------------------------------------
+
+1. Library Rain - Paper Lanterns             Score:  5.43
+     - genre match: lofi (+2.0)
+     - mood match: chill (+1.0)
+     - close energy match (+2.00)
+     - acoustic preference (+0.43)
+
+2. Midnight Coding - LoRoom                  Score:  5.21
+     - genre match: lofi (+2.0)
+     - mood match: chill (+1.0)
+     - close energy match (+1.86)
+     - acoustic preference (+0.35)
+
+3. Focus Flow - LoRoom                       Score:  4.29
+     - genre match: lofi (+2.0)
+     - close energy match (+1.90)
+     - acoustic preference (+0.39)
+
+4. Spacewalk Thoughts - Orbit Bloom          Score:  3.32
+     - mood match: chill (+1.0)
+     - close energy match (+1.86)
+     - acoustic preference (+0.46)
+
+5. Coffee Shop Stories - Slow Stereo         Score:  2.40
      - close energy match (+1.96)
+     - acoustic preference (+0.45)
 
-2. Gym Hero - Max Pulse                      Score:  3.74
-     - genre match: pop (+2.0)
-     - close energy match (+1.74)
+============================================================
+```
 
-3. Stayin' Alive - Bee Gees                  Score:  2.98
-     - mood match: happy (+1.0)
+### Profile 3 — Deep Intense Rock
+
+```
+============================================================
+                    TOP RECOMMENDATIONS
+============================================================
+For your taste  ->  genre: rock  |  mood: intense  |  energy: 0.9  |  likes_acoustic: False
+------------------------------------------------------------
+
+1. Storm Runner - Voltline                   Score:  5.43
+     - genre match: rock (+2.0)
+     - mood match: intense (+1.0)
      - close energy match (+1.98)
+     - non-acoustic preference (+0.45)
 
-4. Rooftop Lights - Indigo Parade            Score:  2.92
-     - mood match: happy (+1.0)
-     - close energy match (+1.92)
+2. Enter Sandman - Metallica                 Score:  3.50
+     - mood match: intense (+1.0)
+     - close energy match (+2.00)
+     - non-acoustic preference (+0.50)
 
-5. Uptown Funk - Mark Ronson ft. Bruno Mars  Score:  2.62
-     - mood match: happy (+1.0)
-     - energy match (+1.62)
+3. Gym Hero - Max Pulse                      Score:  3.42
+     - mood match: intense (+1.0)
+     - close energy match (+1.94)
+     - non-acoustic preference (+0.47)
+
+4. Levels - Avicii                           Score:  3.35
+     - mood match: intense (+1.0)
+     - close energy match (+1.86)
+     - non-acoustic preference (+0.49)
+
+5. HUMBLE. - Kendrick Lamar                  Score:  2.94
+     - mood match: intense (+1.0)
+     - energy match (+1.44)
+     - non-acoustic preference (+0.50)
 
 ============================================================
 ```
